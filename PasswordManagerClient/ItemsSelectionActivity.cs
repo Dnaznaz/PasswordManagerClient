@@ -12,7 +12,7 @@ using System.Threading;
 
 namespace PasswordManagerClient
 {
-    [Activity(Label = "ItemsSelection", MainLauncher = true)]
+    [Activity(Label = "Item selection window", MainLauncher = false)]
     public class ItemsSelectionActivity : Activity
     {
         private List<PasswordEntry> items;
@@ -24,48 +24,136 @@ namespace PasswordManagerClient
 
             // Create your application here
             SetContentView(Resource.Layout.ItemsSelection);
+
             listView = FindViewById<ListView>(Resource.Id.PassList);
+            var addBtn = FindViewById<Button>(Resource.Id.addBtn);
 
             items = new List<PasswordEntry>();
-            items.Add(new PasswordEntry(1,"facebook"));
-            items.Add(new PasswordEntry(2, "google"));
-            items.Add(new PasswordEntry(3, "instagram"));
+            items.Add(new PasswordEntry(1, "Google"));
 
             ListViewAdapter adapter = new ListViewAdapter(this, items);
 
             listView.Adapter = adapter;
             listView.ItemClick += ListView_ItemClick;
             listView.ItemLongClick += ListView_ItemLongClick;
+
+            addBtn.Click += AddPasswordDialog;
+        }
+
+        private void AddPasswordDialog(object sender, EventArgs e)
+        {
+            FragmentTransaction transaction = FragmentManager.BeginTransaction();
+            AddPasswordFragment addPasswordFragment = new AddPasswordFragment();
+            addPasswordFragment.onConfirm += AddPassword;
+
+            addPasswordFragment.Show(transaction, "add password dialog");
+        }
+
+        private void UpdatePasswordDialog(object sender, PasswordModifyEventArgs e)
+        {
+            int id = items[e.Position].ID;
+            string name = items[e.Position].Name;
+
+            FragmentTransaction transaction = FragmentManager.BeginTransaction();
+            AddPasswordFragment addPasswordFragment = new AddPasswordFragment(id, name);
+            addPasswordFragment.onConfirm += UpdatePassword;
+
+            addPasswordFragment.Show(transaction, "add password dialog");
+        }
+
+        private void DeletePasswordDialog(object sender, PasswordModifyEventArgs e)
+        {
+            int id = items[e.Position].ID;
+
+            FragmentTransaction transaction = FragmentManager.BeginTransaction();
+            DeleteConfirmFragment deleteFragment = new DeleteConfirmFragment(id);
+            deleteFragment.onConfirmChose += DeletePassword;
+
+            deleteFragment.Show(transaction, "confirm delete dialog");
         }
 
         private void ListView_ItemClick(object sender, AdapterView.ItemClickEventArgs e)
         {
             int passID = items[e.Position].ID;
 
-            //TODO get pass
+            GetPassword(passID);
         }
 
         private void ListView_ItemLongClick(object sender, AdapterView.ItemLongClickEventArgs e)
         {
-            int passID = items[e.Position].ID;
-
             FragmentTransaction transaction = FragmentManager.BeginTransaction();
-            DeleteConfirmFragment deleteFragment = new DeleteConfirmFragment(passID);
-            deleteFragment.onConfirmChose += DeleteFragmentOnConfirmChose;
+            PasswordModifySwitchFragment modifySwitchFragment = new PasswordModifySwitchFragment(e.Position);
+            modifySwitchFragment.onDelete += DeletePasswordDialog;
+            modifySwitchFragment.onEdit += UpdatePasswordDialog;
 
-            deleteFragment.Show(transaction, "confirm delete dialog");
+            modifySwitchFragment.Show(transaction, "modify switch");
         }
 
-        private void DeleteFragmentOnConfirmChose(object sender, ConfirmDeleteEventArgs confirmDeleteEventArgs)
+        private void GetPassword(int id)
+        {
+            Response res = CommunicationManger.GetInstance().RequestGetPassword(id);
+
+            if (res.Success)
+            {
+                FragmentTransaction transaction = FragmentManager.BeginTransaction();
+                PasswordDisplayFragment displayFragment = new PasswordDisplayFragment(res.Name, res.Password);
+
+                displayFragment.Show(transaction, "password display");
+            }
+            else
+                this.RunOnUiThread(
+                        () => { Toast.MakeText(this, "Could not get password\n" + res.ErrorMsg, ToastLength.Long).Show(); });
+        }
+
+        private void DeletePassword(object sender, ConfirmDeleteEventArgs confirmDeleteEventArgs)
         {
             new Thread(() =>
             {
-                bool success = CommunicationManger.GetInstance().RequestDeletePassword(confirmDeleteEventArgs.passID);
+                Response res = CommunicationManger.GetInstance().RequestDeletePassword(confirmDeleteEventArgs.passID);
 
-                if (success)
+                if (res.Success)
                     items.Remove(items.Find(x => x.ID == confirmDeleteEventArgs.passID));
                 else
-                    this.RunOnUiThread(() => { Toast.MakeText(this, "Delete failed", ToastLength.Long).Show(); });
+                    this.RunOnUiThread(
+                        () => { Toast.MakeText(this, "Could not delete password\n" + res.ErrorMsg, ToastLength.Long).Show(); });
+            }).Start();
+        }
+
+        private void AddPassword(object sender, EntryDataPasswordEventArgs addPasswordEventArgs)
+        {
+            new Thread(() =>
+            {
+                Response res = CommunicationManger.GetInstance()
+                    .RequestAddPassword(addPasswordEventArgs.Name, addPasswordEventArgs.Pass);
+
+                if (res.Success)
+                    items.Add(new PasswordEntry(res.ID, addPasswordEventArgs.Name));
+                else
+                    this.RunOnUiThread(
+                        () =>
+                        {
+                            Toast.MakeText(this, "Could not add password\n" + res.ErrorMsg, ToastLength.Long).Show();
+                        });
+            }).Start();
+        }
+
+        private void UpdatePassword(object sender, EntryDataPasswordEventArgs updatePasswordEventArgs)
+        {
+            new Thread(() =>
+            {
+                Response res = CommunicationManger.GetInstance()
+                    .RequestUpdatePassword(updatePasswordEventArgs.ID, updatePasswordEventArgs.Name,
+                        updatePasswordEventArgs.Pass);
+
+                if (res.Success)
+                {
+                    int i = items.FindIndex(x => x.ID == res.ID);
+                    items[i] = new PasswordEntry(res.ID, updatePasswordEventArgs.Name);
+                }
+                else
+                    this.RunOnUiThread(
+                        () => { Toast.MakeText(this, "Could not update password\n" + res.ErrorMsg, ToastLength.Long).Show(); });
+
             }).Start();
         }
     }

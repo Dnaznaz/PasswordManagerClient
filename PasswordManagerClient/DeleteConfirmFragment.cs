@@ -18,7 +18,7 @@ namespace PasswordManagerClient
     {
         public int passID { get; }
 
-        public ConfirmDeleteEventArgs(int id)
+        public ConfirmDeleteEventArgs(int id) : base()
         {
             passID = id;
         }
